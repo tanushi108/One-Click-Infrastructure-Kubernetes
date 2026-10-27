@@ -1,13 +1,24 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx
   namespace: default
+  labels:
+    app: nginx
 spec:
   replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
   selector:
     matchLabels:
       app: nginx
+
   template:
     metadata:
       labels:
@@ -17,7 +28,9 @@ spec:
         - name: nginx
           image: nginx:stable
           ports:
-            - containerPort: 80
+            - name: http
+              containerPort: 80
+
           resources:
             requests:
               cpu: 100m
@@ -25,3 +38,17 @@ spec:
             limits:
               cpu: 250m
               memory: 128Mi
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
