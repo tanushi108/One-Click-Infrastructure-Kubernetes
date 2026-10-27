@@ -21,7 +21,13 @@ pipeline {
         string(
             name: 'REPLICA_COUNT',
             defaultValue: '2',
-            description: 'Number of NGINX replicas for DEPLOY (1-50)'
+            description: 'Desired NGINX replicas for CREATE_REPLICAS (1-50)'
+        )
+
+        string(
+            name: 'DELETE_COUNT',
+            defaultValue: '1',
+            description: 'Number of NGINX replicas to delete (1-50)'
         )
     }
 
@@ -42,6 +48,10 @@ pipeline {
                     if (params.ACTION == 'CREATE_REPLICAS') {
                         echo "Requested replicas: ${params.REPLICA_COUNT}"
                     }
+
+                    if (params.ACTION == 'DELETE_REPLICAS') {
+                        echo "Requested replicas to delete: ${params.DELETE_COUNT}"
+                    }
                 }
             }
         }
@@ -58,6 +68,23 @@ pipeline {
 
                     if (params.REPLICA_COUNT.toInteger() > 50) {
                         error('Maximum allowed replicas is 50.')
+                    }
+                }
+            }
+        }
+
+        stage('Validate Delete Count') {
+            when {
+                expression { params.ACTION == 'DELETE_REPLICAS' }
+            }
+            steps {
+                script {
+                    if (!(params.DELETE_COUNT ==~ /^[1-9][0-9]*$/)) {
+                        error('DELETE_COUNT must be a positive whole number.')
+                    }
+
+                    if (params.DELETE_COUNT.toInteger() > 50) {
+                        error('Maximum allowed delete count is 50.')
                     }
                 }
             }
@@ -119,7 +146,6 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-
                         echo "===== Applying Terraform Plan ====="
                         terraform apply -input=false apply.tfplan
 
@@ -192,22 +218,55 @@ pipeline {
                       --region "$AWS_REGION" \
                       --name "$EKS_CLUSTER_NAME"
 
-                    echo "===== Deleting NGINX Deployment ====="
-                    kubectl delete deployment nginx \
-                      --namespace default --ignore-not-found=true
+                    echo "===== Checking Current NGINX Replicas ====="
 
-                    echo "===== Deleting NGINX Service ====="
-                    kubectl delete service nginx-service \
-                      --namespace default --ignore-not-found=true
+                    CURRENT=$(kubectl get deployment nginx \
+                      --namespace default \
+                      -o jsonpath='{.spec.replicas}' 2>/dev/null) || {
+                        echo "ERROR: NGINX Deployment does not exist."
+                        exit 1
+                    }
 
-                    echo "===== Remaining Kubernetes Pods ====="
+                    CURRENT=${CURRENT:-0}
+                    DELETE="${DELETE_COUNT}"
+
+                    echo "Current desired replicas: $CURRENT"
+                    echo "Requested replicas to delete: $DELETE"
+
+                    if [ "$DELETE" -gt "$CURRENT" ]; then
+                        echo "ERROR: Cannot delete $DELETE replicas."
+                        echo "Only $CURRENT replicas are configured."
+                        echo "No changes have been made."
+                        exit 1
+                    fi
+
+                    REMAINING=$((CURRENT - DELETE))
+
+                    echo "===== Scaling NGINX Deployment ====="
+                    echo "Replicas after deletion: $REMAINING"
+
+                    kubectl scale deployment/nginx \
+                      --namespace default \
+                      --replicas="$REMAINING"
+
+                    echo "===== Waiting for Scaling ====="
+                    kubectl rollout status deployment/nginx --timeout=300s \
+                      || {
+                        echo "WARNING: Rollout did not complete successfully."
+                        kubectl get pods -l app=nginx -o wide
+                        exit 1
+                      }
+
+                    echo "===== Deployment After Scaling ====="
+                    kubectl get deployment nginx
+
+                    echo "===== All Kubernetes Pods ====="
                     kubectl get pods
 
                     echo "===== Remaining NGINX Pods ====="
-                    kubectl get pods -l app=nginx
+                    kubectl get pods -l app=nginx -o wide
 
-                    echo "NGINX Deployment and Service deleted."
-                    echo "EKS infrastructure has not been destroyed."
+                    echo "EKS infrastructure and Kubernetes Service are unchanged."
                 '''
             }
         }
@@ -281,7 +340,6 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-
                         echo "===== Destroying Terraform Infrastructure ====="
                         terraform apply -input=false destroy.tfplan
 
