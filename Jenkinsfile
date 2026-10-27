@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -66,8 +65,10 @@ pipeline {
 
         stage('Validate Tools') {
             when {
-                expression { params.ACTION == 'DEPLOY' ||
-                             params.ACTION == 'DELETE_PODS' }
+                expression {
+                    params.ACTION == 'DEPLOY' ||
+                    params.ACTION == 'DELETE_PODS'
+                }
             }
             steps {
                 sh '''
@@ -118,7 +119,12 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
+
+                        echo "===== Applying Terraform Plan ====="
                         terraform apply -input=false apply.tfplan
+
+                        echo "===== Terraform Managed Resources ====="
+                        terraform state list
                     '''
                 }
             }
@@ -153,13 +159,23 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     aws eks update-kubeconfig \
                       --region "$AWS_REGION" \
                       --name "$EKS_CLUSTER_NAME"
 
+                    echo "===== Deployment Status ====="
                     kubectl rollout status deployment/nginx --timeout=300s
                     kubectl get deployment nginx
+
+                    echo "===== All Kubernetes Pods ====="
+                    kubectl get pods
+
+                    echo "===== NGINX Pods and Node Placement ====="
                     kubectl get pods -l app=nginx -o wide
+
+                    echo "===== Kubernetes Services ====="
+                    kubectl get services
                 '''
             }
         }
@@ -176,11 +192,19 @@ pipeline {
                       --region "$AWS_REGION" \
                       --name "$EKS_CLUSTER_NAME"
 
+                    echo "===== Deleting NGINX Deployment ====="
                     kubectl delete deployment nginx \
                       --namespace default --ignore-not-found=true
 
+                    echo "===== Deleting NGINX Service ====="
                     kubectl delete service nginx-service \
                       --namespace default --ignore-not-found=true
+
+                    echo "===== Remaining Kubernetes Pods ====="
+                    kubectl get pods
+
+                    echo "===== Remaining NGINX Pods ====="
+                    kubectl get pods -l app=nginx
 
                     echo "NGINX Deployment and Service deleted."
                     echo "EKS infrastructure has not been destroyed."
@@ -211,11 +235,13 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
+
                         terraform plan \
                           -destroy \
                           -input=false \
                           -out=destroy.tfplan
 
+                        echo "===== Review Full Infrastructure Destroy Plan ====="
                         terraform show -no-color destroy.tfplan
                     '''
                 }
@@ -235,7 +261,7 @@ pipeline {
                             choice(
                                 name: 'CONFIRM_DESTROY',
                                 choices: ['NO', 'YES'],
-                                description: 'Review the Terraform destroy plan before choosing YES.'
+                                description: 'Choose YES only after reviewing the Terraform destroy plan.'
                             )
                         ]
                     )
@@ -255,7 +281,12 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
+
+                        echo "===== Destroying Terraform Infrastructure ====="
                         terraform apply -input=false destroy.tfplan
+
+                        echo "===== Terraform State After Destroy ====="
+                        terraform state list
                     '''
                 }
             }
