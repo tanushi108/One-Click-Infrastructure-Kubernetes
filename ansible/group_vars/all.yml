@@ -1,0 +1,10 @@
+---
+aws_region: ap-south-1
+eks_cluster_name: eks-cluster
+
+kubernetes_namespace: default
+app_name: nginx
+container_image: nginx:stable
+replica_count: 2
+container_port: 80
+service_type: ClusterIP

@@ -1,0 +1,44 @@
+---
+- name: Validate tools for EKS deployment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: ap-south-1
+    eks_cluster_name: eks-cluster
+
+  tasks:
+    - name: Check AWS CLI
+      ansible.builtin.command:
+        argv:
+          - aws
+          - --version
+      changed_when: false
+
+    - name: Check kubectl
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - version
+          - --client
+      changed_when: false
+
+    - name: Check AWS identity
+      ansible.builtin.command:
+        argv:
+          - aws
+          - sts
+          - get-caller-identity
+          - --query
+          - Account
+          - --output
+          - text
+      environment:
+        AWS_DEFAULT_REGION: "{{ aws_region }}"
+      register: aws_account
+      changed_when: false
+
+    - name: Display AWS account
+      ansible.builtin.debug:
+        msg: "AWS account verified: {{ aws_account.stdout }}"
