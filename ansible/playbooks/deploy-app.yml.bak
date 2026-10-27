@@ -1,0 +1,60 @@
+---
+- name: Deploy Nginx application to Amazon EKS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: ap-south-1
+    eks_cluster_name: eks-cluster
+    kubeconfig_path: "{{ lookup('env', 'HOME') }}/.kube/config"
+    app_namespace: default
+    app_name: nginx
+
+  tasks:
+    - name: Update kubeconfig for EKS
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+      changed_when: true
+
+    - name: Apply Nginx deployment
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/../../kubernetes/deployment.yml"
+        kubeconfig: "{{ kubeconfig_path }}"
+        context: "arn:aws:eks:ap-south-1:478815938749:cluster/eks-cluster"
+
+    - name: Apply Nginx service
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/../../kubernetes/service.yml"
+        kubeconfig: "{{ kubeconfig_path }}"
+        context: "arn:aws:eks:ap-south-1:478815938749:cluster/eks-cluster"
+
+    - name: Wait for Nginx deployment to become ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ app_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+        context: "arn:aws:eks:ap-south-1:478815938749:cluster/eks-cluster"
+      register: nginx_deployment
+      until:
+        - nginx_deployment.resources | length > 0
+        - nginx_deployment.resources[0].status.readyReplicas | default(0) | int == 2
+      retries: 20
+      delay: 15
+
+    - name: Display deployment status
+      ansible.builtin.debug:
+        msg: "Nginx deployment is ready with 2 replicas."
