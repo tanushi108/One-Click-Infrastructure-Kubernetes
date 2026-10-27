@@ -11,9 +11,9 @@ pipeline {
         choice(
             name: 'ACTION',
             choices: [
+                'CREATE_REPLICAS',
+                'DELETE_REPLICAS',
                 'TERRAFORM_APPLY',
-                'DEPLOY',
-                'DELETE_PODS',
                 'DESTROY_INFRA'
             ],
             description: 'Choose the operation to perform'
