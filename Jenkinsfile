@@ -48,7 +48,7 @@ pipeline {
 
         stage('Validate Replica Count') {
             when {
-                expression { params.ACTION == 'DEPLOY' }
+                expression { params.ACTION == 'CREATE_REPLICAS' }
             }
             steps {
                 script {
@@ -139,7 +139,7 @@ pipeline {
 
         stage('Deploy NGINX with Ansible') {
             when {
-                expression { params.ACTION == 'DEPLOY' }
+                expression { params.ACTION == 'CREATE_REPLICAS' }
             }
             steps {
                 withEnv(["SELECTED_REPLICAS=${params.REPLICA_COUNT}"]) {
