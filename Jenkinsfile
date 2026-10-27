@@ -39,7 +39,7 @@ pipeline {
                 echo "EKS Cluster: ${EKS_CLUSTER_NAME}"
 
                 script {
-                    if (params.ACTION == 'DEPLOY') {
+                    if (params.ACTION == 'CREATE_REPLICAS') {
                         echo "Requested replicas: ${params.REPLICA_COUNT}"
                     }
                 }
@@ -66,8 +66,8 @@ pipeline {
         stage('Validate Tools') {
             when {
                 expression {
-                    params.ACTION == 'DEPLOY' ||
-                    params.ACTION == 'DELETE_PODS'
+                    params.ACTION == 'CREATE_REPLICAS' ||
+                    params.ACTION == 'DELETE_REPLICAS'
                 }
             }
             steps {
@@ -154,7 +154,7 @@ pipeline {
 
         stage('Verify NGINX Deployment') {
             when {
-                expression { params.ACTION == 'DEPLOY' }
+                expression { params.ACTION == 'CREATE_REPLICAS' }
             }
             steps {
                 sh '''
@@ -182,7 +182,7 @@ pipeline {
 
         stage('Delete NGINX Application') {
             when {
-                expression { params.ACTION == 'DELETE_PODS' }
+                expression { params.ACTION == 'DELETE_REPLICAS' }
             }
             steps {
                 sh '''
