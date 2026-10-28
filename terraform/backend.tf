@@ -1,7 +1,7 @@
 terraform {
   backend "s3" {
-    bucket       = "tanushi-assignment4-tfstate-2026"
-    key          = "assignment-4/terraform.tfstate"
+    bucket       = "one-click-eks-tfstate-478815938749"
+    key          = "One-Click-Infra/terraform.tfstate"
     region       = "ap-south-1"
     use_lockfile = true
   }
