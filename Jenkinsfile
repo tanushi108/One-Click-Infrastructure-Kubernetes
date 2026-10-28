@@ -292,3 +292,4 @@ stage('Terraform Destroy') {
         }
     }
 }
+}
