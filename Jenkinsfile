@@ -9,26 +9,14 @@ pipeline {
     parameters {
         choice(
             name: 'ACTION',
-            choices: [
-                'CREATE_REPLICAS',
-                'DELETE_REPLICAS',
-                'TERRAFORM_APPLY',
-                'DESTROY_INFRA'
-            ],
+            choices: ['TERRAFORM_APPLY', 'CREATE_REPLICAS', 'DELETE_REPLICAS', 'DESTROY_INFRA'],
             description: 'Choose the operation to perform'
         )
 
-        string(
-            name: 'REPLICA_COUNT',
-            defaultValue: '2',
-            description: 'Desired NGINX replicas for CREATE_REPLICAS (1-50)'
-        )
-
-        string(
-            name: 'DELETE_COUNT',
-            defaultValue: '1',
-            description: 'Number of NGINX replicas to delete (1-50)'
-        )
+        string(name: 'REPLICA_COUNT', defaultValue: '2',
+               description: 'Desired NGINX replicas for CREATE_REPLICAS (1-50)')
+        string(name: 'DELETE_COUNT', defaultValue: '1',
+               description: 'Number of NGINX replicas to remove (1-50)')
     }
 
     environment {
@@ -38,76 +26,7 @@ pipeline {
     }
 
     stages {
-        stage('Show Configuration') {
-            steps {
-                echo "Action: ${params.ACTION}"
-                echo "AWS Region: ${AWS_REGION}"
-                echo "EKS Cluster: ${EKS_CLUSTER_NAME}"
-
-                script {
-                    if (params.ACTION == 'CREATE_REPLICAS') {
-                        echo "Requested replicas: ${params.REPLICA_COUNT}"
-                    }
-
-                    if (params.ACTION == 'DELETE_REPLICAS') {
-                        echo "Requested replicas to delete: ${params.DELETE_COUNT}"
-                    }
-                }
-            }
-        }
-
-        stage('Validate Replica Count') {
-            when {
-                expression { params.ACTION == 'CREATE_REPLICAS' }
-            }
-            steps {
-                script {
-                    if (!(params.REPLICA_COUNT ==~ /^[1-9][0-9]*$/)) {
-                        error('Enter a positive whole number for replicas.')
-                    }
-
-                    if (params.REPLICA_COUNT.toInteger() > 50) {
-                        error('Maximum allowed replicas is 50.')
-                    }
-                }
-            }
-        }
-
-        stage('Validate Delete Count') {
-            when {
-                expression { params.ACTION == 'DELETE_REPLICAS' }
-            }
-            steps {
-                script {
-                    if (!(params.DELETE_COUNT ==~ /^[1-9][0-9]*$/)) {
-                        error('DELETE_COUNT must be a positive whole number.')
-                    }
-
-                    if (params.DELETE_COUNT.toInteger() > 50) {
-                        error('Maximum allowed delete count is 50.')
-                    }
-                }
-            }
-        }
-
-        stage('Validate Tools') {
-            when {
-                expression {
-                    params.ACTION == 'CREATE_REPLICAS' ||
-                    params.ACTION == 'DELETE_REPLICAS'
-                }
-            }
-            steps {
-                sh '''
-                    set -eu
-                    aws --version
-                    kubectl version --client
-                    ansible --version
-                '''
-            }
-        }
-
-        stage('Plan Terraform Infrastructure') {
+        stage('Terraform Apply') {
             when {
                 expression { params.ACTION == 'TERRAFORM_APPLY' }
             }
@@ -117,37 +36,43 @@ pipeline {
                         set -eu
                         terraform init -input=false
                         terraform validate
-                        terraform plan -input=false -out=apply.tfplan
+
+                        if [ ! -f terraform.tfvars ]; then
+                            echo "ERROR: terraform.tfvars not found in ${TF_DIR}."
+                            exit 1
+                        fi
+
+                        terraform plan -input=false \
+                          -var-file=terraform.tfvars \
+                          -out=apply.tfplan
+
+                        echo "===== Terraform Apply Plan ====="
                         terraform show -no-color apply.tfplan
                     '''
                 }
-            }
-        }
 
-        stage('Approve Terraform Apply') {
-            when {
-                expression { params.ACTION == 'TERRAFORM_APPLY' }
-            }
-            steps {
                 script {
-                    input(
-                        message: 'Review the Terraform plan. Do you want to apply these infrastructure changes?',
-                        ok: 'Approve Apply'
+                    def approval = input(
+                        message: 'Review the Terraform plan in the console. Apply these changes?',
+                        ok: 'Approve Apply',
+                        parameters: [
+                            choice(name: 'CONFIRM_APPLY', choices: ['NO', 'YES'],
+                                   description: 'Choose YES to apply the displayed plan.')
+                        ]
                     )
+                    if (approval != 'YES') {
+                        error('Terraform apply cancelled by user.')
+                    }
                 }
-            }
-        }
 
-        stage('Apply Terraform Infrastructure') {
-            when {
-                expression { params.ACTION == 'TERRAFORM_APPLY' }
-            }
-            steps {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
                         echo "===== Applying Terraform Plan ====="
                         terraform apply -input=false apply.tfplan
+
+                        echo "===== Terraform Outputs ====="
+                        terraform output || true
 
                         echo "===== Terraform Managed Resources ====="
                         terraform state list
@@ -163,115 +88,95 @@ pipeline {
             }
         }
 
-        stage('Deploy NGINX with Ansible') {
+        stage('Manage Replicas') {
             when {
-                expression { params.ACTION == 'CREATE_REPLICAS' }
-            }
-            steps {
-                withEnv(["SELECTED_REPLICAS=${params.REPLICA_COUNT}"]) {
-                    sh '''
-                        set -eu
-                        ansible-playbook ansible/playbooks/deploy-app.yml \
-                          -e "replica_count=${SELECTED_REPLICAS}"
-                    '''
+                expression {
+                    params.ACTION == 'CREATE_REPLICAS' ||
+                    params.ACTION == 'DELETE_REPLICAS'
                 }
             }
-        }
-
-        stage('Verify NGINX Deployment') {
-            when {
-                expression { params.ACTION == 'CREATE_REPLICAS' }
-            }
             steps {
                 sh '''
                     set -eu
+                    aws --version
+                    kubectl version --client
+                    ansible --version
 
                     aws eks update-kubeconfig \
                       --region "$AWS_REGION" \
                       --name "$EKS_CLUSTER_NAME"
 
-                    echo "===== Deployment Status ====="
-                    kubectl rollout status deployment/nginx --timeout=300s
-                    kubectl get deployment nginx
-
-                    echo "===== All Kubernetes Pods ====="
-                    kubectl get pods
-
-                    echo "===== NGINX Pods and Node Placement ====="
+                    echo "===== Current NGINX Deployment ====="
+                    kubectl get deployment nginx -o wide
                     kubectl get pods -l app=nginx -o wide
+                '''
 
+                script {
+                    if (params.ACTION == 'CREATE_REPLICAS') {
+                        if (!(params.REPLICA_COUNT ==~ /^[1-9][0-9]*$/) ||
+                            params.REPLICA_COUNT.toInteger() > 50) {
+                            error('REPLICA_COUNT must be a whole number from 1 to 50.')
+                        }
+
+                        withEnv(["SELECTED_REPLICAS=${params.REPLICA_COUNT}"]) {
+                            sh '''
+                                set -eu
+                                echo "===== Deploy/Scale NGINX to ${SELECTED_REPLICAS} replicas ====="
+                                ansible-playbook ansible/playbooks/deploy-app.yml \
+                                  -e "replica_count=${SELECTED_REPLICAS}"
+
+                                echo "===== Wait for NGINX rollout ====="
+                                kubectl rollout status deployment/nginx --timeout=300s
+                            '''
+                        }
+                    } else {
+                        if (!(params.DELETE_COUNT ==~ /^[1-9][0-9]*$/) ||
+                            params.DELETE_COUNT.toInteger() > 50) {
+                            error('DELETE_COUNT must be a whole number from 1 to 50.')
+                        }
+
+                        withEnv(["REQUESTED_DELETE=${params.DELETE_COUNT}"]) {
+                            sh '''
+                                set -eu
+                                CURRENT=$(kubectl get deployment nginx \
+                                  -o jsonpath='{.spec.replicas}')
+
+                                CURRENT=${CURRENT:-0}
+                                echo "Current replicas: $CURRENT"
+                                echo "Replicas requested to remove: $REQUESTED_DELETE"
+
+                                if [ "$REQUESTED_DELETE" -gt "$CURRENT" ]; then
+                                    echo "ERROR: Cannot remove more replicas than currently configured."
+                                    exit 1
+                                fi
+
+                                REMAINING=$((CURRENT - REQUESTED_DELETE))
+                                echo "Scaling NGINX to $REMAINING replicas."
+
+                                kubectl scale deployment/nginx --replicas="$REMAINING"
+                                kubectl rollout status deployment/nginx --timeout=300s
+                            '''
+                        }
+                    }
+                }
+
+                sh '''
+                    set -eu
+                    echo "===== Final NGINX Deployment ====="
+                    kubectl get deployment nginx -o wide
+                    echo "===== Pods and Node Placement ====="
+                    kubectl get pods -o wide
+                    echo "===== NGINX Pods ====="
+                    kubectl get pods -l app=nginx -o wide
                     echo "===== Kubernetes Services ====="
                     kubectl get services
+                    echo "===== Kubernetes Nodes ====="
+                    kubectl get nodes -o wide
                 '''
             }
         }
 
-        stage('Delete NGINX Application') {
-            when {
-                expression { params.ACTION == 'DELETE_REPLICAS' }
-            }
-            steps {
-                sh '''
-                    set -eu
-
-                    aws eks update-kubeconfig \
-                      --region "$AWS_REGION" \
-                      --name "$EKS_CLUSTER_NAME"
-
-                    echo "===== Checking Current NGINX Replicas ====="
-
-                    CURRENT=$(kubectl get deployment nginx \
-                      --namespace default \
-                      -o jsonpath='{.spec.replicas}' 2>/dev/null) || {
-                        echo "ERROR: NGINX Deployment does not exist."
-                        exit 1
-                    }
-
-                    CURRENT=${CURRENT:-0}
-                    DELETE="${DELETE_COUNT}"
-
-                    echo "Current desired replicas: $CURRENT"
-                    echo "Requested replicas to delete: $DELETE"
-
-                    if [ "$DELETE" -gt "$CURRENT" ]; then
-                        echo "ERROR: Cannot delete $DELETE replicas."
-                        echo "Only $CURRENT replicas are configured."
-                        echo "No changes have been made."
-                        exit 1
-                    fi
-
-                    REMAINING=$((CURRENT - DELETE))
-
-                    echo "===== Scaling NGINX Deployment ====="
-                    echo "Replicas after deletion: $REMAINING"
-
-                    kubectl scale deployment/nginx \
-                      --namespace default \
-                      --replicas="$REMAINING"
-
-                    echo "===== Waiting for Scaling ====="
-                    kubectl rollout status deployment/nginx --timeout=300s \
-                      || {
-                        echo "WARNING: Rollout did not complete successfully."
-                        kubectl get pods -l app=nginx -o wide
-                        exit 1
-                      }
-
-                    echo "===== Deployment After Scaling ====="
-                    kubectl get deployment nginx
-
-                    echo "===== All Kubernetes Pods ====="
-                    kubectl get pods
-
-                    echo "===== Remaining NGINX Pods ====="
-                    kubectl get pods -l app=nginx -o wide
-
-                    echo "EKS infrastructure and Kubernetes Service are unchanged."
-                '''
-            }
-        }
-
-        stage('Initialize Terraform for Destroy') {
+        stage('Terraform Destroy') {
             when {
                 expression { params.ACTION == 'DESTROY_INFRA' }
             }
@@ -281,69 +186,46 @@ pipeline {
                         set -eu
                         terraform init -input=false
                         terraform validate
-                    '''
-                }
-            }
-        }
 
-        stage('Plan Infrastructure Destroy') {
-            when {
-                expression { params.ACTION == 'DESTROY_INFRA' }
-            }
-            steps {
-                dir("${TF_DIR}") {
-                    sh '''
-                        set -eu
+                        if [ ! -f terraform.tfvars ]; then
+                            echo "ERROR: terraform.tfvars not found in the Terraform directory."
+                            exit 1
+                        fi
 
-                        terraform plan \
-                          -destroy \
+                        terraform plan -destroy \
                           -input=false \
+                          -var-file=terraform.tfvars \
                           -out=destroy.tfplan
 
                         echo "===== Review Full Infrastructure Destroy Plan ====="
                         terraform show -no-color destroy.tfplan
                     '''
                 }
-            }
-        }
 
-        stage('Confirm Whole Infrastructure Deletion') {
-            when {
-                expression { params.ACTION == 'DESTROY_INFRA' }
-            }
-            steps {
                 script {
                     def confirmation = input(
-                        message: 'Are you sure you want to delete the whole infrastructure?',
-                        ok: 'Submit confirmation',
+                        message: 'This may delete all infrastructure managed by this Terraform state. Review the destroy plan first.',
+                        ok: 'Confirm Decision',
                         parameters: [
-                            choice(
-                                name: 'CONFIRM_DESTROY',
-                                choices: ['NO', 'YES'],
-                                description: 'Choose YES only after reviewing the Terraform destroy plan.'
-                            )
+                            choice(name: 'CONFIRM_DESTROY', choices: ['NO', 'YES'],
+                                   description: 'Choose YES only if you intend to destroy all resources in this plan.')
                         ]
                     )
-
                     if (confirmation != 'YES') {
-                        error('Infrastructure destroy cancelled. Terraform destroy was not executed.')
+                        error('Infrastructure destroy cancelled. No destroy apply was run.')
                     }
                 }
-            }
-        }
 
-        stage('Destroy Terraform Infrastructure') {
-            when {
-                expression { params.ACTION == 'DESTROY_INFRA' }
-            }
-            steps {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-                        echo "===== Destroying Terraform Infrastructure ====="
+                        echo "===== Destroying Infrastructure ====="
                         terraform apply -input=false destroy.tfplan
 
-                        echo "===== Terraform State After Destroy ====="
+                        echo "===== Terraform Outputs After Destroy ====="
+                        terraform output || true
+
+                        echo "===== Terraform State After Destroy (should be empty) ====="
                         terraform state list
                     '''
                 }
