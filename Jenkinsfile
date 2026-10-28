@@ -282,6 +282,7 @@ stage('Terraform Destroy') {
         }
     }
 }
+    }
 
     post {
         success {
@@ -291,5 +292,4 @@ stage('Terraform Destroy') {
             echo "Action ${params.ACTION} failed or was cancelled. Check the console log."
         }
     }
-}
 }
