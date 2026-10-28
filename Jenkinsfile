@@ -176,69 +176,112 @@ pipeline {
             }
         }
 
-        stage('Terraform Destroy') {
-            when {
-                expression { params.ACTION == 'DESTROY_INFRA' }
-            }
-            steps {
-                dir("${TF_DIR}") {
-                    sh '''
-                        set -eu
-                        terraform init -input=false
-                        terraform validate
+ 
+stage('Terraform Destroy') {
+    when {
+        expression { params.ACTION == 'DESTROY_INFRA' }
+    }
 
-                        if [ ! -f terraform.tfvars ]; then
-                            echo "ERROR: terraform.tfvars not found in the Terraform directory."
-                            exit 1
-                        fi
+    steps {
+        dir("${TF_DIR}") {
+            sh '''
+                set -eu
 
-                        terraform plan -destroy \
-                          -input=false \
-                          -var-file=terraform.tfvars \
-                          -out=destroy.tfplan
+                echo "===== Initializing Terraform ====="
+                terraform init -input=false
+                terraform validate
 
-                        echo "===== Review Full Infrastructure Destroy Plan ====="
-                        terraform show -no-color destroy.tfplan
-                    '''
-                }
+                if [ ! -f terraform.tfvars ]; then
+                    echo "ERROR: terraform.tfvars not found."
+                    exit 1
+                fi
 
-                script {
-                    def confirmation = input(
-                        message: 'This may delete all infrastructure managed by this Terraform state. Review the destroy plan first.',
-                        ok: 'Confirm Decision',
-                        parameters: [
-                            choice(name: 'CONFIRM_DESTROY', choices: ['NO', 'YES'],
-                                   description: 'Choose YES only if you intend to destroy all resources in this plan.')
-                        ]
+                echo "===== Checking Terraform VPC ====="
+
+                VPC_ADDRESS=$(terraform state list \
+                    | grep -E '^aws_vpc\\.' \
+                    | head -n 1 || true)
+
+                if [ -n "$VPC_ADDRESS" ]; then
+                    VPC_ID=$(terraform state show "$VPC_ADDRESS" \
+                        | awk '/^[[:space:]]*id[[:space:]]*=/ {
+                            gsub(/"/, "", $3)
+                            print $3
+                            exit
+                        }')
+
+                    if [ -n "$VPC_ID" ]; then
+                        echo "VPC found: $VPC_ID"
+                        echo "===== Checking ENI Dependencies ====="
+
+                        aws ec2 describe-network-interfaces \
+                            --region "$AWS_REGION" \
+                            --filters "Name=vpc-id,Values=$VPC_ID" \
+                            --query 'NetworkInterfaces[].{ENI:NetworkInterfaceId,Status:Status,Description:Description,Type:InterfaceType,Instance:Attachment.InstanceId,PublicIP:Association.PublicIp}' \
+                            --output table
+                    else
+                        echo "WARNING: VPC ID could not be read."
+                    fi
+                else
+                    echo "No aws_vpc resource found in Terraform state."
+                fi
+
+                echo "===== Creating Destroy Plan ====="
+
+                terraform plan -destroy \
+                    -input=false \
+                    -var-file=terraform.tfvars \
+                    -out=destroy.tfplan
+
+                echo "===== Review Full Infrastructure Destroy Plan ====="
+                terraform show -no-color destroy.tfplan
+            '''
+        }
+
+        script {
+            def confirmation = input(
+                message: 'Review the plan. This can delete infrastructure managed by this Terraform state.',
+                ok: 'Confirm Decision',
+                parameters: [
+                    choice(
+                        name: 'CONFIRM_DESTROY',
+                        choices: ['NO', 'YES'],
+                        description: 'Choose YES only if you intend to destroy all resources in this plan.'
                     )
-                    if (confirmation != 'YES') {
-                        error('Infrastructure destroy cancelled. No destroy apply was run.')
-                    }
-                }
+                ]
+            )
 
-                dir("${TF_DIR}") {
-                    sh '''
-                        set -eu
-                        echo "===== Destroying Infrastructure ====="
-                        terraform apply -input=false destroy.tfplan
-
-                        echo "===== Terraform Outputs After Destroy ====="
-                        terraform output || true
-
-                        echo "===== Terraform State After Destroy (should be empty) ====="
-                        terraform state list
-                    '''
-                }
+            if (confirmation != 'YES') {
+                error('Infrastructure destroy cancelled. No destroy apply was run.')
             }
-            post {
-                always {
-                    dir("${TF_DIR}") {
-                        sh 'rm -f destroy.tfplan'
-                    }
-                }
+        }
+
+        dir("${TF_DIR}") {
+            sh '''
+                set -eu
+
+                echo "===== Destroying Infrastructure ====="
+                terraform apply -input=false destroy.tfplan
+
+                echo "===== Terraform Outputs After Destroy ====="
+                terraform output || true
+
+                echo "===== Terraform State After Destroy ====="
+                terraform state list || true
+
+                echo "===== Destroy Stage Completed ====="
+            '''
+        }
+    }
+
+    post {
+        always {
+            dir("${TF_DIR}") {
+                sh 'rm -f destroy.tfplan'
             }
         }
     }
+}
 
     post {
         success {
