@@ -66,8 +66,8 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-                        echo "===== Initializing Terraform ====="
-                        terraform init -input=false
+                        echo "===== Initializing Terraform with -reconfigure ====="
+                        terraform init -input=false -reconfigure
 
                         echo "===== Applying Terraform for EKS & Node Group ====="
                         terraform apply -auto-approve -input=false \
@@ -116,8 +116,8 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-                        echo "===== Initializing Terraform ====="
-                        terraform init -input=false
+                        echo "===== Initializing Terraform with -reconfigure ====="
+                        terraform init -input=false -reconfigure
 
                         echo "===== Destroying EKS Cluster & Node Group ====="
                         terraform destroy -auto-approve -input=false \
