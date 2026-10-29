@@ -64,19 +64,24 @@ pipeline {
             }
             steps {
                 dir("${TF_DIR}") {
-                    sh '''
-                        set -eu
-                        echo "===== Initializing Terraform with -reconfigure ====="
-                        terraform init -input=false -reconfigure
+                    withCredentials([
+                        string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh '''
+                            set -eu
+                            echo "===== Initializing Terraform with -reconfigure ====="
+                            terraform init -input=false -reconfigure
 
-                        echo "===== Applying Terraform for EKS & Node Group ====="
-                        terraform apply -auto-approve -input=false \
-                            -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
-                            -target=aws_eks_node_group.node_groups
+                            echo "===== Applying Terraform for EKS & Node Group ====="
+                            terraform apply -auto-approve -input=false \
+                                -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
+                                -target=aws_eks_node_group.node_groups
 
-                        echo "===== Terraform State List ====="
-                        terraform state list
-                    '''
+                            echo "===== Terraform State List ====="
+                            terraform state list
+                        '''
+                    }
                 }
             }
         }
@@ -114,19 +119,24 @@ pipeline {
             }
             steps {
                 dir("${TF_DIR}") {
-                    sh '''
-                        set -eu
-                        echo "===== Initializing Terraform with -reconfigure ====="
-                        terraform init -input=false -reconfigure
+                    withCredentials([
+                        string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh '''
+                            set -eu
+                            echo "===== Initializing Terraform with -reconfigure ====="
+                            terraform init -input=false -reconfigure
 
-                        echo "===== Destroying EKS Cluster & Node Group ====="
-                        terraform destroy -auto-approve -input=false \
-                            -target=aws_eks_node_group.node_groups \
-                            -target=aws_eks_cluster.${EKS_CLUSTER_NAME}
+                            echo "===== Destroying EKS Cluster & Node Group ====="
+                            terraform destroy -auto-approve -input=false \
+                                -target=aws_eks_node_group.node_groups \
+                                -target=aws_eks_cluster.${EKS_CLUSTER_NAME}
 
-                        echo "===== Terraform State After Destroy ====="
-                        terraform state list
-                    '''
+                            echo "===== Terraform State After Destroy ====="
+                            terraform state list
+                        '''
+                    }
                 }
             }
         }
