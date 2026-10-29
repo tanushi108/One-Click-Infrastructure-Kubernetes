@@ -44,29 +44,6 @@ pipeline {
 
         // ==================== TERRAFORM APPLY FLOW ====================
 
-        // stage('Plan Terraform Infrastructure') {
-        //     when {
-        //         expression { params.ACTION == 'TERRAFORM_APPLY' }
-        //     }
-        //     steps {
-        //         dir("${TF_DIR}") {
-        //             sh '''
-        //                 set -eu
-        //                 terraform init 
-        //                 terraform validate
-                        
-        //                 # Sirf EKS Cluster aur Node Group ko target karne ke liye -target flag
-        //                 terraform plan  \
-        //                     -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
-        //                     -target=aws_eks_node_group.node_groups \
-        //                     -out=apply.tfplan
-                            
-        //                 terraform show -no-color apply.tfplan
-        //             '''
-        //         }
-        //     }
-        // }
-
         stage('Approve Terraform Apply') {
             when {
                 expression { params.ACTION == 'TERRAFORM_APPLY' }
@@ -74,7 +51,7 @@ pipeline {
             steps {
                 script {
                     input(
-                        message: 'Review the Terraform plan for EKS Cluster & Node Group. Do you want to approve and apply these changes?',
+                        message: 'Do you want to approve and apply changes for EKS Cluster & Node Group?',
                         ok: 'Approve Apply'
                     )
                 }
@@ -89,63 +66,22 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-                        echo "===== Applying Terraform Plan for EKS & Node Group ====="
-                        terraform apply -input=false apply.tfplan
+                        echo "===== Initializing Terraform ====="
+                        terraform init -input=false
+
+                        echo "===== Applying Terraform for EKS & Node Group ====="
+                        terraform apply -auto-approve -input=false \
+                            -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
+                            -target=aws_eks_node_group.node_groups
 
                         echo "===== Terraform State List ====="
                         terraform state list
                     '''
                 }
             }
-            post {
-                always {
-                    dir("${TF_DIR}") {
-                        sh 'rm -f apply.tfplan'
-                    }
-                }
-            }
         }
 
         // ==================== TERRAFORM DESTROY FLOW ====================
-
-        // stage('Initialize Terraform for Destroy') {
-        //     when {
-        //         expression { params.ACTION == 'DESTROY_INFRA' }
-        //     }
-        //     steps {
-        //         dir("${TF_DIR}") {
-        //             sh '''
-        //                 set -eu
-        //                 terraform init -input=false
-        //                 terraform validate
-        //             '''
-        //         }
-        //     }
-        // }
-
-        // stage('Plan Infrastructure Destroy') {
-        //     when {
-        //         expression { params.ACTION == 'DESTROY_INFRA' }
-        //     }
-        //     steps {
-        //         dir("${TF_DIR}") {
-        //             sh '''
-        //                 set -eu
-                        
-        //                 # Destroy plan with targets for EKS Node Group and Cluster
-        //                 terraform plan \
-        //                     -destroy \
-        //                     -input=false \
-        //                     -target=aws_eks_node_group.node_groups \
-        //                     -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
-        //                     -out=destroy.tfplan
-
-        //                 echo "===== Review EKS Destroy Plan ====="
-        //                 terraform show -no-color destroy.tfplan
-        //             '''
-        //         }
-        //     }
-        // }
 
         stage('Approve Terraform Destroy') {
             when {
@@ -160,7 +96,7 @@ pipeline {
                             choice(
                                 name: 'CONFIRM_DESTROY',
                                 choices: ['NO', 'YES'],
-                                description: 'Choose YES only after reviewing the destroy plan.'
+                                description: 'Choose YES only if you are sure.'
                             )
                         ]
                     )
@@ -180,19 +116,17 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
+                        echo "===== Initializing Terraform ====="
+                        terraform init -input=false
+
                         echo "===== Destroying EKS Cluster & Node Group ====="
-                        terraform apply -input=false destroy.tfplan
+                        terraform destroy -auto-approve -input=false \
+                            -target=aws_eks_node_group.node_groups \
+                            -target=aws_eks_cluster.${EKS_CLUSTER_NAME}
 
                         echo "===== Terraform State After Destroy ====="
                         terraform state list
                     '''
-                }
-            }
-            post {
-                always {
-                    dir("${TF_DIR}") {
-                        sh 'rm -f destroy.tfplan'
-                    }
                 }
             }
         }
