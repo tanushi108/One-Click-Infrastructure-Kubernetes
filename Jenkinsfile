@@ -19,7 +19,6 @@ pipeline {
 
     environment {
         AWS_REGION = 'ap-south-1'
-        EKS_CLUSTER_NAME = 'eks-cluster'
         TF_DIR = 'terraform'
     }
 
@@ -28,7 +27,6 @@ pipeline {
             steps {
                 echo "Action: ${params.ACTION}"
                 echo "AWS Region: ${AWS_REGION}"
-                echo "EKS Cluster: ${EKS_CLUSTER_NAME}"
             }
         }
 
@@ -75,8 +73,8 @@ pipeline {
 
                             echo "===== Applying Terraform for EKS & Node Group ====="
                             terraform apply -auto-approve -input=false \
-                                -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
-                                -target=aws_eks_node_group.node_groups
+                                -target=aws_eks_cluster.main \
+                                -target=aws_eks_node_group.main
 
                             echo "===== Terraform State List ====="
                             terraform state list
@@ -130,8 +128,8 @@ pipeline {
 
                             echo "===== Destroying EKS Cluster & Node Group ====="
                             terraform destroy -auto-approve -input=false \
-                                -target=aws_eks_node_group.node_groups \
-                                -target=aws_eks_cluster.${EKS_CLUSTER_NAME}
+                                -target=aws_eks_node_group.main \
+                                -target=aws_eks_cluster.main
 
                             echo "===== Terraform State After Destroy ====="
                             terraform state list
