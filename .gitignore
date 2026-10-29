@@ -13,7 +13,3 @@ crash.*.log
 .env
 .aws/
 
-# Terraform variable files may contain sensitive values
-*.tfvars
-*.tfvars.json
-!*.tfvars.example

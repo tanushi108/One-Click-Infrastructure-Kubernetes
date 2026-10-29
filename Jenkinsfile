@@ -10,18 +10,10 @@ pipeline {
         choice(
             name: 'ACTION',
             choices: [
-                'CREATE_REPLICAS',
-                'DELETE_REPLICAS',
                 'TERRAFORM_APPLY',
                 'DESTROY_INFRA'
             ],
-            description: 'Choose the operation to perform'
-        )
-
-        string(
-            name: 'REPLICA_COUNT',
-            defaultValue: '2',
-            description: 'Number of NGINX replicas for DEPLOY (1-50)'
+            description: 'Choose the operation to perform on EKS Cluster & Node Group'
         )
     }
 
@@ -37,48 +29,20 @@ pipeline {
                 echo "Action: ${params.ACTION}"
                 echo "AWS Region: ${AWS_REGION}"
                 echo "EKS Cluster: ${EKS_CLUSTER_NAME}"
-
-                script {
-                    if (params.ACTION == 'DEPLOY') {
-                        echo "Requested replicas: ${params.REPLICA_COUNT}"
-                    }
-                }
-            }
-        }
-
-        stage('Validate Replica Count') {
-            when {
-                expression { params.ACTION == 'DEPLOY' }
-            }
-            steps {
-                script {
-                    if (!(params.REPLICA_COUNT ==~ /^[1-9][0-9]*$/)) {
-                        error('Enter a positive whole number for replicas.')
-                    }
-
-                    if (params.REPLICA_COUNT.toInteger() > 50) {
-                        error('Maximum allowed replicas is 50.')
-                    }
-                }
             }
         }
 
         stage('Validate Tools') {
-            when {
-                expression {
-                    params.ACTION == 'DEPLOY' ||
-                    params.ACTION == 'DELETE_PODS'
-                }
-            }
             steps {
                 sh '''
                     set -eu
                     aws --version
-                    kubectl version --client
-                    ansible --version
+                    terraform version
                 '''
             }
         }
+
+        // ==================== TERRAFORM APPLY FLOW ====================
 
         stage('Plan Terraform Infrastructure') {
             when {
@@ -90,7 +54,13 @@ pipeline {
                         set -eu
                         terraform init -input=false
                         terraform validate
-                        terraform plan -input=false -out=apply.tfplan
+                        
+                        # Sirf EKS Cluster aur Node Group ko target karne ke liye -target flag
+                        terraform plan -input=false \
+                            -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
+                            -target=aws_eks_node_group.node_groups \
+                            -out=apply.tfplan
+                            
                         terraform show -no-color apply.tfplan
                     '''
                 }
@@ -104,7 +74,7 @@ pipeline {
             steps {
                 script {
                     input(
-                        message: 'Review the Terraform plan. Do you want to apply these infrastructure changes?',
+                        message: 'Review the Terraform plan for EKS Cluster & Node Group. Do you want to approve and apply these changes?',
                         ok: 'Approve Apply'
                     )
                 }
@@ -119,11 +89,10 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-
-                        echo "===== Applying Terraform Plan ====="
+                        echo "===== Applying Terraform Plan for EKS & Node Group ====="
                         terraform apply -input=false apply.tfplan
 
-                        echo "===== Terraform Managed Resources ====="
+                        echo "===== Terraform State List ====="
                         terraform state list
                     '''
                 }
@@ -137,80 +106,7 @@ pipeline {
             }
         }
 
-        stage('Deploy NGINX with Ansible') {
-            when {
-                expression { params.ACTION == 'DEPLOY' }
-            }
-            steps {
-                withEnv(["SELECTED_REPLICAS=${params.REPLICA_COUNT}"]) {
-                    sh '''
-                        set -eu
-                        ansible-playbook ansible/playbooks/deploy-app.yml \
-                          -e "replica_count=${SELECTED_REPLICAS}"
-                    '''
-                }
-            }
-        }
-
-        stage('Verify NGINX Deployment') {
-            when {
-                expression { params.ACTION == 'DEPLOY' }
-            }
-            steps {
-                sh '''
-                    set -eu
-
-                    aws eks update-kubeconfig \
-                      --region "$AWS_REGION" \
-                      --name "$EKS_CLUSTER_NAME"
-
-                    echo "===== Deployment Status ====="
-                    kubectl rollout status deployment/nginx --timeout=300s
-                    kubectl get deployment nginx
-
-                    echo "===== All Kubernetes Pods ====="
-                    kubectl get pods
-
-                    echo "===== NGINX Pods and Node Placement ====="
-                    kubectl get pods -l app=nginx -o wide
-
-                    echo "===== Kubernetes Services ====="
-                    kubectl get services
-                '''
-            }
-        }
-
-        stage('Delete NGINX Application') {
-            when {
-                expression { params.ACTION == 'DELETE_PODS' }
-            }
-            steps {
-                sh '''
-                    set -eu
-
-                    aws eks update-kubeconfig \
-                      --region "$AWS_REGION" \
-                      --name "$EKS_CLUSTER_NAME"
-
-                    echo "===== Deleting NGINX Deployment ====="
-                    kubectl delete deployment nginx \
-                      --namespace default --ignore-not-found=true
-
-                    echo "===== Deleting NGINX Service ====="
-                    kubectl delete service nginx-service \
-                      --namespace default --ignore-not-found=true
-
-                    echo "===== Remaining Kubernetes Pods ====="
-                    kubectl get pods
-
-                    echo "===== Remaining NGINX Pods ====="
-                    kubectl get pods -l app=nginx
-
-                    echo "NGINX Deployment and Service deleted."
-                    echo "EKS infrastructure has not been destroyed."
-                '''
-            }
-        }
+        // ==================== TERRAFORM DESTROY FLOW ====================
 
         stage('Initialize Terraform for Destroy') {
             when {
@@ -235,39 +131,42 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-
+                        
+                        # Destroy plan with targets for EKS Node Group and Cluster
                         terraform plan \
-                          -destroy \
-                          -input=false \
-                          -out=destroy.tfplan
+                            -destroy \
+                            -input=false \
+                            -target=aws_eks_node_group.node_groups \
+                            -target=aws_eks_cluster.${EKS_CLUSTER_NAME} \
+                            -out=destroy.tfplan
 
-                        echo "===== Review Full Infrastructure Destroy Plan ====="
+                        echo "===== Review EKS Destroy Plan ====="
                         terraform show -no-color destroy.tfplan
                     '''
                 }
             }
         }
 
-        stage('Confirm Whole Infrastructure Deletion') {
+        stage('Approve Terraform Destroy') {
             when {
                 expression { params.ACTION == 'DESTROY_INFRA' }
             }
             steps {
                 script {
                     def confirmation = input(
-                        message: 'Are you sure you want to delete the whole infrastructure?',
-                        ok: 'Submit confirmation',
+                        message: 'Are you sure you want to destroy the EKS Cluster and Node Group?',
+                        ok: 'Approve Destroy',
                         parameters: [
                             choice(
                                 name: 'CONFIRM_DESTROY',
                                 choices: ['NO', 'YES'],
-                                description: 'Choose YES only after reviewing the Terraform destroy plan.'
+                                description: 'Choose YES only after reviewing the destroy plan.'
                             )
                         ]
                     )
 
                     if (confirmation != 'YES') {
-                        error('Infrastructure destroy cancelled. Terraform destroy was not executed.')
+                        error('Terraform destroy was cancelled by user.')
                     }
                 }
             }
@@ -281,8 +180,7 @@ pipeline {
                 dir("${TF_DIR}") {
                     sh '''
                         set -eu
-
-                        echo "===== Destroying Terraform Infrastructure ====="
+                        echo "===== Destroying EKS Cluster & Node Group ====="
                         terraform apply -input=false destroy.tfplan
 
                         echo "===== Terraform State After Destroy ====="
