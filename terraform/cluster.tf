@@ -1,8 +1,8 @@
-=========================================================
+# =========================================================
 
-EKS Cluster IAM Role
+# EKS Cluster IAM Role
 
-=========================================================
+# =========================================================
 
 resource "aws_iam_role" "eks_cluster_role" {
 name = "${var.project_name}-eks-cluster-role"
@@ -30,22 +30,22 @@ Name = "${var.project_name}-eks-cluster-role"
 }
 }
 
-=========================================================
+# =========================================================
 
-EKS Cluster IAM Policy Attachment
+# EKS Cluster IAM Policy Attachment
 
-=========================================================
+# =========================================================
 
 resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
 role       = aws_iam_role.eks_cluster_role.name
 policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
-=========================================================
+# =========================================================
 
-EKS Cluster
+# EKS Cluster
 
-=========================================================
+# =========================================================
 
 resource "aws_eks_cluster" "main" {
 name     = var.eks_cluster_name
@@ -77,11 +77,11 @@ Name = var.eks_cluster_name
 }
 }
 
-=========================================================
+# =========================================================
 
-EKS Node IAM Role
+# EKS Node IAM Role
 
-=========================================================
+# =========================================================
 
 resource "aws_iam_role" "node_role" {
 name = "${var.project_name}-eks-node-role"
@@ -109,11 +109,11 @@ Name = "${var.project_name}-eks-node-role"
 }
 }
 
-=========================================================
+# =========================================================
 
-EKS Worker Node Policies
+# EKS Worker Node Policies
 
-=========================================================
+# =========================================================
 
 resource "aws_iam_role_policy_attachment" "node_worker_policy" {
 role       = aws_iam_role.node_role.name
@@ -130,11 +130,11 @@ role       = aws_iam_role.node_role.name
 policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly"
 }
 
-=========================================================
+# =========================================================
 
-EKS Launch Template (With Max Pods Configured)
+# EKS Launch Template (With Max Pods Configured)
 
-=========================================================
+# =========================================================
 
 data "aws_ami" "eks_default" {
 filter {
@@ -179,11 +179,11 @@ create_before_destroy = true
 }
 }
 
-=========================================================
+# =========================================================
 
-EKS Managed Node Group
+# EKS Managed Node Group
 
-=========================================================
+# =========================================================
 
 resource "aws_eks_node_group" "main" {
 cluster_name    = aws_eks_cluster.main.name
