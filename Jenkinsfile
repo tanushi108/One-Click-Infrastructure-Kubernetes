@@ -105,7 +105,7 @@ pipeline {
 
         stage('Create / Scale NGINX Replicas') {
             when {
-                expression { params.ACTION == 'CREATE_REPLICAS' }
+                expression { params.ACTION == 'CREATE_REPLICAS' || params.ACTION == 'TERRAFORM_APPLY' }
             }
             steps {
                 withCredentials([
