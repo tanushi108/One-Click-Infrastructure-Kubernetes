@@ -297,6 +297,10 @@ resource "aws_vpc_security_group_ingress_rule" "eks_nodes_from_cluster_10250" {
 # EKS Worker Node Launch Template
 # =========================================================
 
+# =========================================================
+# EKS Worker Node Launch Template (MIME Multipart Format)
+# =========================================================
+
 resource "aws_launch_template" "eks_nodes" {
   name_prefix = "${var.project_name}-eks-nodes-"
 
@@ -304,13 +308,20 @@ resource "aws_launch_template" "eks_nodes" {
     aws_security_group.eks_nodes.id
   ]
 
-  # Custom Bootstrap user_data to increase max pod limit to 20
+  # MIME multipart format required by EKS managed node groups for custom user_data
   user_data = base64encode(<<-EOT
-    #!/bin/bash
-    set -exc
-    /etc/eks/bootstrap.sh ${var.eks_cluster_name} \
-      --kubelet-extra-args '--max-pods=20'
-  EOT
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==MYBOUNDARY=="
+
+--==MYBOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
+set -ex
+/etc/eks/bootstrap.sh ${var.eks_cluster_name} --kubelet-extra-args '--max-pods=20'
+
+--==MYBOUNDARY==--
+EOT
   )
 
   tag_specifications {
