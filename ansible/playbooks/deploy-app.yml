@@ -17,8 +17,8 @@
       ansible.builtin.assert:
         that:
           - replica_count | int >= 1
-          - replica_count | int <= 5
-        fail_msg: "Replica count must be between 1 and 5."
+          - replica_count | int <= 50
+        fail_msg: "Replica count must be between 1 and 50."
 
     - name: Update kubeconfig for EKS
       ansible.builtin.command:
@@ -38,34 +38,21 @@
       kubernetes.core.k8s:
         state: present
         kubeconfig: "{{ kubeconfig_path }}"
-        definition:
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: nginx
-            namespace: "{{ app_namespace }}"
-          spec:
-            replicas: "{{ replica_count | int }}"
-            selector:
-              matchLabels:
-                app: nginx
-            template:
-              metadata:
-                labels:
-                  app: nginx
-              spec:
-                containers:
-                  - name: nginx
-                    image: nginx:stable
-                    ports:
-                      - containerPort: 80
-                    resources:
-                      requests:
-                        cpu: 100m
-                        memory: 64Mi
-                      limits:
-                        cpu: 250m
-                        memory: 128Mi
+        definition: >-
+          {{
+            lookup('file', playbook_dir ~ '/../../kubernetes/deployment.yml')
+            | from_yaml
+            | combine(
+                {
+                  'spec': (
+                    lookup('file', playbook_dir ~ '/../../kubernetes/deployment.yml')
+                    | from_yaml
+                  ).spec | combine(
+                    {'replicas': replica_count | int}
+                  )
+                }
+              )
+          }}
 
     - name: Apply Nginx service
       kubernetes.core.k8s:
