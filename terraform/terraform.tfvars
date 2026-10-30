@@ -20,4 +20,4 @@ eks_instance_type = "t2.micro"
 
 eks_desired_size = 2
 eks_min_size     = 1
-eks_max_size     = 3
+eks_max_size     = 5

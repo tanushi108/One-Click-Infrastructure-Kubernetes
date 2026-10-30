@@ -170,5 +170,9 @@ resource "aws_eks_node_group" "main" {
 
   tags = {
     Name = "${var.project_name}-eks-node-group"
+
+    # Ye tags Cluster Autoscaler ke liye zaroori hain
+    "k8s.io/cluster-autoscaler/enabled"        = "true"
+    "k8s.io/cluster-autoscaler/eks-cluster"    = "owned" 
   }
 }

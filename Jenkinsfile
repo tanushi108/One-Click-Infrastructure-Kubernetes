@@ -103,7 +103,7 @@ pipeline {
 
         // ==================== CREATE REPLICAS FLOW (ANSIBLE) ====================
 
-        stage('Create / Scale NGINX Replicas with Ansible') {
+        stage('Create / Scale NGINX Replicas') {
             when {
                 expression { params.ACTION == 'CREATE_REPLICAS' }
             }
@@ -132,7 +132,7 @@ pipeline {
 
         // ==================== DELETE REPLICAS FLOW ====================
 
-        stage('Delete NGINX Replicas / App') {
+        stage('Delete NGINX Replicas') {
             when {
                 expression { params.ACTION == 'DELETE_REPLICAS' }
             }
