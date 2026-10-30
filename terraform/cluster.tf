@@ -132,55 +132,6 @@ policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly"
 
 # =========================================================
 
-# EKS Launch Template (With Max Pods Configured)
-
-# =========================================================
-
-data "aws_ami" "eks_default" {
-filter {
-name   = "name"
-values = ["amazon-eks-node-${var.eks_version}-v*"]
-}
-
-most_recent = true
-owners      = ["602401143452"] # Amazon EKS AMI Account ID
-}
-
-resource "aws_launch_template" "eks_nodes" {
-name_prefix   = "${var.project_name}-eks-node-"
-image_id      = data.aws_ami.eks_default.id
-instance_type = var.eks_instance_type
-
-vpc_security_group_ids = [
-aws_security_group.eks_cluster.id
-]
-
-# Custom Bootstrap user_data to increase max pod limit to 20
-
-user_data = base64encode(<<-EOT
-#!/bin/bash
-set -ex
-/etc/eks/bootstrap.sh ${var.eks_cluster_name} --kubelet-extra-args '--max-pods=20'
-EOT
-)
-
-tag_specifications {
-resource_type = "instance"
-
-tags = {
-  Name = "${var.project_name}-eks-node"
-}
-
-
-}
-
-lifecycle {
-create_before_destroy = true
-}
-}
-
-# =========================================================
-
 # EKS Managed Node Group
 
 # =========================================================

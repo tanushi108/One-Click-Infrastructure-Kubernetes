@@ -37,7 +37,7 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                     = "${var.project_name}-public-az1"
+    Name                       = "${var.project_name}-public-az1"
     "kubernetes.io/role/elb" = "1"
   }
 }
@@ -70,7 +70,7 @@ resource "aws_subnet" "public_az2" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                     = "${var.project_name}-public-az2"
+    Name                       = "${var.project_name}-public-az2"
     "kubernetes.io/role/elb" = "1"
   }
 }
@@ -303,6 +303,15 @@ resource "aws_launch_template" "eks_nodes" {
   vpc_security_group_ids = [
     aws_security_group.eks_nodes.id
   ]
+
+  # Custom Bootstrap user_data to increase max pod limit to 20
+  user_data = base64encode(<<-EOT
+    #!/bin/bash
+    set -exc
+    /etc/eks/bootstrap.sh ${var.eks_cluster_name} \
+      --kubelet-extra-args '--max-pods=20'
+  EOT
+  )
 
   tag_specifications {
     resource_type = "instance"
