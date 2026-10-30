@@ -155,7 +155,7 @@ vpc_security_group_ids = [
 aws_security_group.eks_cluster.id
 ]
 
-Custom Bootstrap user_data to increase max pod limit to 20
+# Custom Bootstrap user_data to increase max pod limit to 20
 
 user_data = base64encode(<<-EOT
 #!/bin/bash
