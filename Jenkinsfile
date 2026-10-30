@@ -165,8 +165,7 @@ pipeline {
                         aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
                         echo "===== Deleting NGINX Deployment & Service ====="
-                        kubectl delete deployment nginx --namespace default --ignore-not-found=true
-                        kubectl delete service nginx-service --namespace default --ignore-not-found=true
+                        kubectl get pods -o name | head -n 2 | xargs kubectl delete
 
                         echo "===== Remaining Pods ====="
                         kubectl get pods
