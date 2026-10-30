@@ -29,7 +29,6 @@ spec:
           command:
             - ./cluster-autoscaler
             - --v=4
-            - --stderrthreshold=info
             - --cloud-provider=aws
             - --skip-nodes-with-system-pods=false
             - --auto-discovery=aws:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/eks-cluster

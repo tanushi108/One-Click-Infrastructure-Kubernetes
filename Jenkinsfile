@@ -204,7 +204,7 @@ pipeline {
 
         stage('Destroy Terraform Infrastructure') {
             when {
-                expression { params.ACTION == 'DESTROY_INF_RA' } // Note: keeping logic aligned
+                expression { env.ACTION == 'DESTROY_INFRA' || params.ACTION == 'DESTROY_INFRA' } // Note: keeping logic aligned
             }
             steps {
                 dir("${TF_DIR}") {
