@@ -165,7 +165,9 @@ pipeline {
                         aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
                         echo "===== Deleting NGINX Deployment & Service ====="
-                        kubectl get pods -o name | head -n 2 | xargs kubectl delete
+                        count=$(kubectl get pods --no-headers | wc -l)
+                        replicas=$((count - 2))
+                        kubectl scale deployment nginx --replicas=$replicas
 
                         echo "===== Remaining Pods ====="
                         kubectl get pods
